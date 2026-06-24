@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Stalking Predator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #3a7d2c; position: relative; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+
+        #joystickContainer {
+            position: absolute; bottom: 50px; left: 50px;
+            width: 120px; height: 120px;
+            background: rgba(0,0,0,0.15);
+            border: 1.5px solid rgba(255,255,255,0.25); border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            z-index: 10; touch-action: none;
+        }
+        #joystickStick {
+            width: 46px; height: 46px;
+            background: rgba(255,255,255,0.75);
+            border-radius: 50%; pointer-events: none;
+        }
+        #zoomControls {
+            position: absolute; top: 20px; right: 20px;
+            display: flex; flex-direction: column; gap: 8px; z-index: 10;
+        }
+        .zoom-btn {
+            width: 44px; height: 44px;
+            background: rgba(0,0,0,0.25);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: rgba(255,255,255,0.85); font-size: 22px; font-weight: 300;
+            border-radius: 8px; display: flex; justify-content: center;
+            align-items: center; user-select: none; cursor: pointer;
+            backdrop-filter: blur(4px);
+        }
+        .zoom-btn:active { background: rgba(255,255,255,0.2); }
+
+        /* HUD */
+        #hud {
+            position: absolute; top: 20px; left: 20px;
+            z-index: 10; pointer-events: none;
+        }
+        #healthBar {
+            width: 160px; height: 6px;
+            background: rgba(0,0,0,0.25);
+            border-radius: 99px; overflow: hidden;
+        }
+        #healthFill {
+            height: 100%; width: 100%;
+            background: rgba(255,255,255,0.85);
+            border-radius: 99px;
+            transition: width 0.3s, background 0.3s;
+        }
+        #healthLabel {
+            color: rgba(255,255,255,0.6); font-family: monospace;
+            font-size: 10px; margin-bottom: 5px; letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        #scoreLabel {
+            color: rgba(255,255,255,0.9); font-family: monospace;
+            font-size: 16px; margin-top: 10px; font-weight: bold; letter-spacing: 1px;
+        }
+        #waveLabel {
+            color: rgba(255,255,255,0.5); font-family: monospace;
+            font-size: 11px; margin-top: 3px; letter-spacing: 2px;
+        }
+
+        /* Game Over */
+        #gameOverScreen {
+            display: none; position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(6px);
+            flex-direction: column; justify-content: center; align-items: center;
+            z-index: 100;
+        }
+        #gameOverScreen h1 {
+            color: #fff; font-family: monospace; font-size: 42px;
+            font-weight: bold; letter-spacing: 4px;
+            margin-bottom: 12px;
+        }
+        #gameOverScreen p {
+            color: rgba(255,255,255,0.55); font-family: monospace;
+            font-size: 16px; margin-bottom: 36px; letter-spacing: 1px;
+        }
+        #restartBtn {
+            padding: 12px 36px; background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.3); color: #fff;
+            font-family: monospace; font-size: 15px; letter-spacing: 2px;
+            cursor: pointer; border-radius: 6px;
+            backdrop-filter: blur(4px); transition: background 0.2s;
+        }
+        #restartBtn:hover { background: rgba(255,255,255,0.22); }
+
+        /* Feed notification */
+        #feedNotif {
+            position: absolute; top: 44%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255,255,255,0.95); font-family: monospace; font-size: 16px;
+            font-weight: bold; pointer-events: none; letter-spacing: 1px;
+            opacity: 0; z-index: 20;
+            text-shadow: 0 1px 6px rgba(0,0,0,0.4);
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+<div id="joystickContainer"><div id="joystickStick"></div></div>
+<div id="zoomControls">
+    <div class="zoom-btn" id="zoomInBtn">+</div>
+    <div class="zoom-btn" id="zoomOutBtn">−</div>
+</div>
+
+<div id="hud">
+    <div id="healthLabel">HEALTH</div>
+    <div id="healthBar"><div id="healthFill"></div></div>
+    <div id="scoreLabel">SCORE: 0</div>
+    <div id="waveLabel">WAVE: 1</div>
+</div>
+
+<div id="gameOverScreen">
+    <h1>GAME OVER</h1>
+    <p id="finalScore">Score: 0</p>
+    <button id="restartBtn">MAIN LAGI</button>
+</div>
+
+<div id="feedNotif">+10 MANGSA DIMAKAN!</div>
+
+<canvas id="geckoCanvas"></canvas>
+
+<script>
+// ===================== BULLET =====================
+class Bullet {
+    constructor(x, y, sudut) {
+        this.x = x; this.y = y;
+        this.speed = 5;
+        this.vx = Math.cos(sudut) * this.speed;
+        this.vy = Math.sin(sudut) * this.speed;
+        this.radius = 4;
+    }
+    update() { this.x += this.vx; this.y += this.vy; }
+    draw(ctx) {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "yellow"; ctx.fill(); ctx.closePath();
+    }
+}
+
+// ===================== HUNTER =====================
+class Hunter {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.radius = 12;
+        this.color = "blue";
+        this.lariSpeed = 2.2;
+        this.intaiSpeed = 0.8;
+        this.shootCooldown = 120 + Math.random() * 120; // delay tembak lebih lama di awal
+        this.hp = 1;
+        this.dead = false;
+        this.flashTimer = 0;
+    }
+    draw(ctx) {
+        if (this.dead) return;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.flashTimer > 0 ? "white" : this.color;
+        ctx.fill();
+        // mata hunter
+        ctx.fillStyle = "red";
+        ctx.beginPath(); ctx.arc(this.x - 4, this.y - 3, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(this.x + 4, this.y - 3, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.closePath();
+    }
+    update(kepalaKadal, kadalBergerak, daftarPeluru) {
+        if (this.dead) return;
+        if (this.flashTimer > 0) this.flashTimer--;
+        let dx = kepalaKadal.x - this.x;
+        let dy = kepalaKadal.y - this.y;
+        let jarak = Math.sqrt(dx*dx + dy*dy);
+        let sudut = Math.atan2(dy, dx);
+        if (this.shootCooldown > 0) this.shootCooldown--;
+        if (jarak < 200) {
+            this.color = "orange";
+            this.x -= Math.cos(sudut) * this.lariSpeed;
+            this.y -= Math.sin(sudut) * this.lariSpeed;
+        } else if (jarak < 600) {
+            this.color = "blue";
+            if (!kadalBergerak) {
+                this.x += Math.cos(sudut) * this.intaiSpeed;
+                this.y += Math.sin(sudut) * this.intaiSpeed;
+            }
+            if (this.shootCooldown === 0) {
+                daftarPeluru.push(new Bullet(this.x, this.y, sudut));
+                this.shootCooldown = 90;
+            }
+        }
+    }
+}
+
+// ===================== PREY (SERANGGA) =====================
+class Prey {
+    constructor(x, y) {
+        this.x = x; this.y = y;
+        this.radius = 6;
+        this.vx = (Math.random() - 0.5) * 1.5;
+        this.vy = (Math.random() - 0.5) * 1.5;
+        this.eaten = false;
+        this.wobble = Math.random() * Math.PI * 2;
+        this.color = `hsl(${80 + Math.random()*60}, 100%, 60%)`;
+    }
+    update() {
+        if (this.eaten) return;
+        this.wobble += 0.12;
+        this.x += this.vx + Math.sin(this.wobble) * 0.5;
+        this.y += this.vy + Math.cos(this.wobble) * 0.5;
+    }
+    draw(ctx) {
+        if (this.eaten) return;
+        // badan serangga
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.ellipse(this.x, this.y, this.radius, this.radius * 0.6, this.wobble, 0, Math.PI * 2);
+        ctx.fill();
+        // sayap
+        ctx.fillStyle = "rgba(255,255,255,0.3)";
+        ctx.beginPath();
+        ctx.ellipse(this.x - 5, this.y - 4, 5, 3, -0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(this.x + 5, this.y - 4, 5, 3, 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        // antena
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(this.x - 2, this.y - this.radius * 0.6);
+        ctx.lineTo(this.x - 6, this.y - this.radius * 1.8);
+        ctx.moveTo(this.x + 2, this.y - this.radius * 0.6);
+        ctx.lineTo(this.x + 6, this.y - this.radius * 1.8);
+        ctx.stroke();
+    }
+}
+
+// ===================== PARTIKEL MAKAN =====================
+class EatParticle {
+    constructor(x, y, color) {
+        this.x = x; this.y = y;
+        this.vx = (Math.random() - 0.5) * 6;
+        this.vy = (Math.random() - 0.5) * 6;
+        this.life = 1.0;
+        this.color = color;
+        this.size = 4 + Math.random() * 4;
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy;
+        this.life -= 0.05;
+    }
+    draw(ctx) {
+        let r = Math.max(this.size * this.life, 0.1);
+        ctx.globalAlpha = Math.max(this.life, 0);
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+}
+
+// ===================== TONGUE =====================
+class Tongue {
+    constructor() {
+        this.active = false;
+        this.progress = 0;
+        this.speed = 0.08;
+        this.maxLen = 90;
+        this.tipX = 0; this.tipY = 0;
+        this.cooldown = 0;
+    }
+    shoot(headX, headY, angle) {
+        if (this.cooldown > 0 || this.active) return;
+        this.active = true;
+        this.progress = 0;
+        this.headX = headX; this.headY = headY;
+        this.angle = angle;
+    }
+    update() {
+        if (!this.active) { if (this.cooldown > 0) this.cooldown--; return; }
+        this.progress += this.speed;
+        let len = Math.sin(this.progress * Math.PI) * this.maxLen;
+        this.tipX = this.headX + Math.cos(this.angle) * len;
+        this.tipY = this.headY + Math.sin(this.angle) * len;
+        if (this.progress >= 1) { this.active = false; this.cooldown = 45; }
+    }
+    draw(ctx, headX, headY) {
+        if (!this.active) return;
+        ctx.strokeStyle = "#ff0055";
+        ctx.lineWidth = 3;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(headX, headY);
+        ctx.lineTo(this.tipX, this.tipY);
+        ctx.stroke();
+        // ujung lidah bercabang
+        ctx.lineWidth = 2;
+        let forkLen = 10;
+        ctx.beginPath();
+        ctx.moveTo(this.tipX, this.tipY);
+        ctx.lineTo(this.tipX + Math.cos(this.angle + 0.4) * forkLen, this.tipY + Math.sin(this.angle + 0.4) * forkLen);
+        ctx.moveTo(this.tipX, this.tipY);
+        ctx.lineTo(this.tipX + Math.cos(this.angle - 0.4) * forkLen, this.tipY + Math.sin(this.angle - 0.4) * forkLen);
+        ctx.stroke();
+    }
+}
+
+// ===================== GAME STATE =====================
+const canvas = document.getElementById("geckoCanvas");
+const ctx = canvas.getContext("2d");
+const healthFill = document.getElementById("healthFill");
+const scoreLabel = document.getElementById("scoreLabel");
+const waveLabel = document.getElementById("waveLabel");
+const gameOverScreen = document.getElementById("gameOverScreen");
+const finalScore = document.getElementById("finalScore");
+const feedNotif = document.getElementById("feedNotif");
+
+let gameOver = false;
+let health = 100;
+let score = 0;
+let wave = 1;
+let waveCooldown = 0;
+let waveHunterCount = 5;
+let feedNotifTimer = 0;
+let zoomLevel = 0.6;
+let invincibleTimer = 0; // frame kebal setelah kena tembak
+const minZoom = 0.25, maxZoom = 2.0;
+
+let listHunter = [];
+let listPeluru = [];
+let listPrey = [];
+let listPartikel = [];
+let tongue = new Tongue();
+
+function spawnHunters(count) {
+    for (let i = 0; i < count; i++) {
+        let angle = Math.random() * Math.PI * 2;
+        let dist = 900 + Math.random() * 400;
+        listHunter.push(new Hunter(
+            segmen[0].x + Math.cos(angle) * dist,
+            segmen[0].y + Math.sin(angle) * dist
+        ));
+    }
+}
+
+function spawnPrey(count) {
+    for (let i = 0; i < count; i++) {
+        let angle = Math.random() * Math.PI * 2;
+        let dist = 100 + Math.random() * 400;
+        listPrey.push(new Prey(
+            segmen[0].x + Math.cos(angle) * dist,
+            segmen[0].y + Math.sin(angle) * dist
+        ));
+    }
+}
+
+function showFeedNotif(text) {
+    feedNotif.textContent = text;
+    feedNotif.style.opacity = 1;
+    feedNotifTimer = 90;
+}
+
+// ===================== JOYSTICK =====================
+const joyContainer = document.getElementById("joystickContainer");
+const joyStick = document.getElementById("joystickStick");
+let joystick = { active: false, angle: 0 };
+
+function handleJoystick(clientX, clientY) {
+    const rect = joyContainer.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    let dx = clientX - centerX, dy = clientY - centerY;
+    let jarak = Math.sqrt(dx*dx + dy*dy);
+    const maxR = rect.width / 2;
+    if (jarak > maxR) { dx = dx/jarak*maxR; dy = dy/jarak*maxR; jarak = maxR; }
+    joyStick.style.transform = `translate(${dx}px,${dy}px)`;
+    if (jarak > 8) { joystick.active = true; joystick.angle = Math.atan2(dy, dx); }
+    else joystick.active = false;
+}
+function resetJoystick() { joyStick.style.transform = `translate(0px,0px)`; joystick.active = false; }
+
+joyContainer.addEventListener("touchstart", e => { e.preventDefault(); handleJoystick(e.touches[0].clientX, e.touches[0].clientY); });
+joyContainer.addEventListener("touchmove", e => { e.preventDefault(); handleJoystick(e.touches[0].clientX, e.touches[0].clientY); });
+joyContainer.addEventListener("touchend", resetJoystick);
+let isDraggingJoy = false;
+joyContainer.addEventListener("mousedown", e => { isDraggingJoy = true; handleJoystick(e.clientX, e.clientY); });
+window.addEventListener("mousemove", e => { if (isDraggingJoy) handleJoystick(e.clientX, e.clientY); });
+window.addEventListener("mouseup", () => { isDraggingJoy = false; resetJoystick(); });
+
+// ===================== ZOOM =====================
+window.addEventListener("wheel", e => {
+    if (e.deltaY < 0) zoomLevel = Math.min(zoomLevel + 0.05, maxZoom);
+    else zoomLevel = Math.max(zoomLevel - 0.05, minZoom);
+});
+document.getElementById("zoomInBtn").addEventListener("click", () => zoomLevel = Math.min(zoomLevel + 0.15, maxZoom));
+document.getElementById("zoomOutBtn").addEventListener("click", () => zoomLevel = Math.max(zoomLevel - 0.15, minZoom));
+let initialPinchDist = null, initialZoom = 1.0;
+window.addEventListener("touchstart", e => {
+    if (e.touches.length === 2) {
+        initialPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        initialZoom = zoomLevel;
+    }
+});
+window.addEventListener("touchmove", e => {
+    if (e.touches.length === 2 && initialPinchDist) {
+        let d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        zoomLevel = Math.max(minZoom, Math.min(maxZoom, initialZoom * (d / initialPinchDist)));
+    }
+});
+window.addEventListener("touchend", e => { if (e.touches.length < 2) initialPinchDist = null; });
+
+// ===================== CANVAS RESIZE =====================
+function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+// ===================== WORLD OBJECTS =====================
+// Simple seeded random supaya objek konsisten
+function seededRand(seed) {
+    let x = Math.sin(seed) * 43758.5453123;
+    return x - Math.floor(x);
+}
+
+const WORLD_SEED = 42;
+const CHUNK_SIZE = 400;
+
+// Generate objek per chunk (tile-based infinite world)
+function getChunkObjects(cx, cy) {
+    let objects = [];
+    let base = (cx * 73856093) ^ (cy * 19349663);
+    let count = Math.floor(seededRand(base + WORLD_SEED) * 8) + 4;
+    for (let i = 0; i < count; i++) {
+        let rx = seededRand(base + i * 3 + 1);
+        let ry = seededRand(base + i * 3 + 2);
+        let type = seededRand(base + i * 3 + 3);
+        objects.push({
+            x: cx * CHUNK_SIZE + rx * CHUNK_SIZE,
+            y: cy * CHUNK_SIZE + ry * CHUNK_SIZE,
+            type: type < 0.15 ? 'tree' : type < 0.45 ? 'tallgrass' : type < 0.7 ? 'grass' : 'flower',
+            variant: Math.floor(seededRand(base + i * 7) * 3),
+            scale: 0.7 + seededRand(base + i * 11) * 0.6
+        });
+    }
+    return objects;
+}
+
+function drawTree(ctx, x, y, scale) {
+    // bayangan
+    ctx.fillStyle = "rgba(0,0,0,0.15)";
+    ctx.beginPath();
+    ctx.ellipse(x + 8*scale, y + 5*scale, 28*scale, 10*scale, 0, 0, Math.PI*2);
+    ctx.fill();
+    // batang
+    ctx.fillStyle = "#6b3a1f";
+    ctx.fillRect(x - 6*scale, y - 10*scale, 12*scale, 30*scale);
+    // daun luar (gelap)
+    ctx.fillStyle = "#2d6e1a";
+    ctx.beginPath(); ctx.arc(x, y - 30*scale, 32*scale, 0, Math.PI*2); ctx.fill();
+    // daun tengah
+    ctx.fillStyle = "#3d8f24";
+    ctx.beginPath(); ctx.arc(x - 8*scale, y - 38*scale, 20*scale, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 10*scale, y - 35*scale, 18*scale, 0, Math.PI*2); ctx.fill();
+    // highlight
+    ctx.fillStyle = "#52b82f";
+    ctx.beginPath(); ctx.arc(x - 5*scale, y - 44*scale, 10*scale, 0, Math.PI*2); ctx.fill();
+}
+
+function drawTallGrass(ctx, x, y, scale, variant) {
+    let colors = ["#4a9e2a","#5cb832","#3d8020"];
+    ctx.strokeStyle = colors[variant % 3];
+    ctx.lineWidth = 2 * scale;
+    ctx.lineCap = "round";
+    for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x + i*5*scale, y + 10*scale);
+        ctx.quadraticCurveTo(x + i*5*scale + (i*3), y - 5*scale, x + i*7*scale + (i*6), y - 20*scale);
+        ctx.stroke();
+    }
+}
+
+function drawGrass(ctx, x, y, scale, variant) {
+    let colors = ["#5cb832","#68d438","#4a9e2a"];
+    ctx.strokeStyle = colors[variant % 3];
+    ctx.lineWidth = 1.5 * scale;
+    ctx.lineCap = "round";
+    for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x + i*4*scale, y + 5*scale);
+        ctx.lineTo(x + i*6*scale, y - 8*scale);
+        ctx.stroke();
+    }
+}
+
+function drawFlower(ctx, x, y, scale, variant) {
+    let petalColors = [["#ff6b6b","#ff3333"],["#ffe066","#ffcc00"],["#cc99ff","#9933ff"]];
+    let [pOuter, pInner] = petalColors[variant % 3];
+    // kelopak
+    ctx.fillStyle = pOuter;
+    for (let a = 0; a < 5; a++) {
+        let angle = (a / 5) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.ellipse(x + Math.cos(angle)*7*scale, y + Math.sin(angle)*7*scale, 5*scale, 3*scale, angle, 0, Math.PI*2);
+        ctx.fill();
+    }
+    // tengah
+    ctx.fillStyle = pInner;
+    ctx.beginPath(); ctx.arc(x, y, 4*scale, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#ffff99";
+    ctx.beginPath(); ctx.arc(x, y, 2*scale, 0, Math.PI*2); ctx.fill();
+    // batang
+    ctx.strokeStyle = "#4a9e2a";
+    ctx.lineWidth = 1.5*scale;
+    ctx.beginPath(); ctx.moveTo(x, y+4*scale); ctx.lineTo(x, y+12*scale); ctx.stroke();
+}
+
+function drawWorld(ctx, minX, maxX, minY, maxY) {
+    // Background rumput dasar
+    ctx.fillStyle = "#3a7d2c";
+    ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
+
+    // Variasi warna rumput
+    let gs = 80;
+    let csx = Math.floor(minX/gs), cex = Math.ceil(maxX/gs);
+    let csy = Math.floor(minY/gs), cey = Math.ceil(maxY/gs);
+    for (let cx = csx; cx <= cex; cx++) {
+        for (let cy = csy; cy <= cey; cy++) {
+            let r = seededRand(cx * 374761 + cy * 668265 + WORLD_SEED);
+            if (r < 0.4) {
+                ctx.fillStyle = r < 0.2 ? "#358025" : "#42912e";
+                ctx.fillRect(cx*gs, cy*gs, gs, gs);
+            }
+        }
+    }
+
+    // Chunk objects (pohon, rumput, bunga)
+    let chunkSx = Math.floor(minX / CHUNK_SIZE) - 1;
+    let chunkEx = Math.ceil(maxX / CHUNK_SIZE) + 1;
+    let chunkSy = Math.floor(minY / CHUNK_SIZE) - 1;
+    let chunkEy = Math.ceil(maxY / CHUNK_SIZE) + 1;
+
+    // Kumpulkan semua objek lalu sort by Y (painter's algorithm)
+    let allObjs = [];
+    for (let cx = chunkSx; cx <= chunkEx; cx++) {
+        for (let cy = chunkSy; cy <= chunkEy; cy++) {
+            getChunkObjects(cx, cy).forEach(o => {
+                if (o.x > minX-60 && o.x < maxX+60 && o.y > minY-80 && o.y < maxY+80) {
+                    allObjs.push(o);
+                }
+            });
+        }
+    }
+    allObjs.sort((a, b) => a.y - b.y);
+
+    allObjs.forEach(o => {
+        if (o.type === 'tree') drawTree(ctx, o.x, o.y, o.scale);
+        else if (o.type === 'tallgrass') drawTallGrass(ctx, o.x, o.y, o.scale, o.variant);
+        else if (o.type === 'grass') drawGrass(ctx, o.x, o.y, o.scale, o.variant);
+        else if (o.type === 'flower') drawFlower(ctx, o.x, o.y, o.scale, o.variant);
+    });
+}
+
+// ===================== KADAL =====================
+const jumlahSegmen = 18;
+const panjangSegmen = 12;
+let segmen = [];
+for (let i = 0; i < jumlahSegmen; i++) {
+    segmen.push({ x: (canvas.width/2) - (i * panjangSegmen), y: canvas.height/2 });
+}
+
+let waktuGlobal = 0;
+const panjangPaha = 45, panjangBetis = 50;
+
+let dataKaki = [
+    { nama: "Depan Kiri",     segmenBody: 2,  group: 0, sign: -1, localX: 35,  localY: -65, xTanah: 0, yTanah: 0, xAsal: 0, yAsal: 0, xTarget: 0, yTarget: 0, stepProgress: 1 },
+    { nama: "Depan Kanan",    segmenBody: 2,  group: 1, sign:  1, localX: 35,  localY:  65, xTanah: 0, yTanah: 0, xAsal: 0, yAsal: 0, xTarget: 0, yTarget: 0, stepProgress: 1 },
+    { nama: "Belakang Kiri",  segmenBody: 10, group: 1, sign:  1, localX: -20, localY: -70, xTanah: 0, yTanah: 0, xAsal: 0, yAsal: 0, xTarget: 0, yTarget: 0, stepProgress: 1 },
+    { nama: "Belakang Kanan", segmenBody: 10, group: 0, sign: -1, localX: -20, localY:  70, xTanah: 0, yTanah: 0, xAsal: 0, yAsal: 0, xTarget: 0, yTarget: 0, stepProgress: 1 }
+];
+let stepGroupAktif = 0;
+dataKaki.forEach(k => {
+    let px = segmen[k.segmenBody].x, py = segmen[k.segmenBody].y;
+    k.xTanah = k.xAsal = k.xTarget = px + k.localX;
+    k.yTanah = k.yAsal = k.yTarget = py + k.localY;
+});
+
+function hitungIK(hipX, hipY, footX, footY, L1, L2, sign) {
+    let dx = footX - hipX, dy = footY - hipY;
+    let dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < 0.1) return { x: hipX + L1, y: hipY };
+    dist = Math.min(dist, L1 + L2 - 0.01);
+    let a2f = Math.atan2(dy, dx);
+    let cos = Math.max(-1, Math.min(1, (L1*L1 + dist*dist - L2*L2) / (2*L1*dist)));
+    let knee = a2f + sign * Math.acos(cos);
+    return { x: hipX + Math.cos(knee)*L1, y: hipY + Math.sin(knee)*L1 };
+}
+
+// ===================== INIT SPAWN =====================
+spawnHunters(waveHunterCount);
+spawnPrey(12);
+
+// ===================== RESTART =====================
+document.getElementById("restartBtn").addEventListener("click", () => {
+    health = 100; score = 0; wave = 1; waveCooldown = 0;
+    waveHunterCount = 5; gameOver = false; invincibleTimer = 0;
+    listHunter = []; listPeluru = []; listPrey = []; listPartikel = [];
+    tongue = new Tongue();
+    for (let i = 0; i < jumlahSegmen; i++) {
+        segmen[i] = { x: (canvas.width/2) - (i * panjangSegmen), y: canvas.height/2 };
+    }
+    dataKaki.forEach(k => {
+        let px = segmen[k.segmenBody].x, py = segmen[k.segmenBody].y;
+        k.xTanah = k.xAsal = k.xTarget = px + k.localX;
+        k.yTanah = k.yAsal = k.yTarget = py + k.localY;
+        k.stepProgress = 1;
+    });
+    gameOverScreen.style.display = "none";
+    spawnHunters(waveHunterCount);
+    spawnPrey(12);
+    waktuGlobal = 0;
+    updateAnimasi();
+});
+
+// ===================== MAIN LOOP =====================
+function updateAnimasi() {
+    if (gameOver) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // --- GAME OVER CHECK ---
+    if (health <= 0) {
+        health = 0;
+        gameOver = true;
+        gameOverScreen.style.display = "flex";
+        finalScore.textContent = `Score: ${score}`;
+        return;
+    }
+
+    // --- WAVE SYSTEM ---
+    let semua_mati = listHunter.length > 0 && listHunter.every(h => h.dead);
+    if (semua_mati) {
+        waveCooldown++;
+        if (waveCooldown > 80) {
+            wave++;
+            waveHunterCount = wave * 2 + 3;
+            listHunter = [];
+            listPeluru = [];
+            spawnHunters(waveHunterCount);
+            spawnPrey(6);
+            waveCooldown = 0;
+        }
+    }
+
+    // --- UPDATE HUD ---
+    healthFill.style.width = health + "%";
+    healthFill.style.background = health > 50 ? "rgba(255,255,255,0.85)" : health > 25 ? "rgba(255,200,80,0.9)" : "rgba(255,90,90,0.9)";
+    scoreLabel.textContent = score.toString().padStart(6, "0");
+    waveLabel.textContent = "WAVE " + wave;
+
+    // feed notif
+    if (feedNotifTimer > 0) {
+        feedNotifTimer--;
+        feedNotif.style.opacity = feedNotifTimer / 30;
+    }
+
+    let kadalBergerak = joystick.active;
+    let arahX = Math.cos(joystick.angle);
+    let arahY = Math.sin(joystick.angle);
+    let sudutKepala = kadalBergerak ? joystick.angle : Math.atan2(segmen[0].y - segmen[1].y, segmen[0].x - segmen[1].x);
+
+    // --- LIDAH AUTO SHOOT ---
+    if (Math.random() < 0.015) {
+        tongue.shoot(segmen[0].x, segmen[0].y, sudutKepala);
+    }
+    tongue.update();
+
+    // --- UPDATE HUNTER ---
+    listHunter.forEach(h => h.update(segmen[0], kadalBergerak, listPeluru));
+
+    // --- UPDATE PELURU & CEK KENA KADAL ---
+    if (invincibleTimer > 0) invincibleTimer--;
+    for (let i = listPeluru.length - 1; i >= 0; i--) {
+        listPeluru[i].update();
+        let dx = listPeluru[i].x - segmen[0].x;
+        let dy = listPeluru[i].y - segmen[0].y;
+        if (Math.sqrt(dx*dx + dy*dy) < 20) {
+            if (invincibleTimer === 0) {
+                health -= 8;
+                invincibleTimer = 40; // kebal 40 frame setelah kena
+            }
+            listPeluru.splice(i, 1);
+            continue;
+        }
+    }
+
+    // --- UPDATE PREY ---
+    listPrey.forEach(p => p.update());
+
+    // --- CEK MAKAN PREY (lidah atau kepala dekat) ---
+    listPrey.forEach(p => {
+        if (p.eaten) return;
+        // makan pakai lidah
+        if (tongue.active) {
+            let dx = tongue.tipX - p.x, dy = tongue.tipY - p.y;
+            if (Math.sqrt(dx*dx + dy*dy) < p.radius + 8) {
+                p.eaten = true;
+                score += 10;
+                health = Math.min(100, health + 5);
+                for (let k = 0; k < 10; k++) listPartikel.push(new EatParticle(p.x, p.y, p.color));
+                showFeedNotif("+10 MANGSA DIMAKAN! 🦗");
+            }
+        }
+        // makan pakai kepala
+        let dx2 = segmen[0].x - p.x, dy2 = segmen[0].y - p.y;
+        if (Math.sqrt(dx2*dx2 + dy2*dy2) < 20) {
+            p.eaten = true;
+            score += 10;
+            health = Math.min(100, health + 5);
+            for (let k = 0; k < 10; k++) listPartikel.push(new EatParticle(p.x, p.y, p.color));
+            showFeedNotif("+10 MANGSA DIMAKAN! 🦗");
+        }
+    });
+
+    // bersihkan prey eaten
+    listPrey = listPrey.filter(p => !p.eaten);
+    if (listPrey.length < 3) spawnPrey(4);
+
+    // --- CEK MAKAN HUNTER ---
+    listHunter.forEach(h => {
+        if (h.dead) return;
+        let dx = segmen[0].x - h.x;
+        let dy = segmen[0].y - h.y;
+        let jarak = Math.sqrt(dx*dx + dy*dy);
+        if (jarak < 20 + h.radius) {
+            h.dead = true;
+            let bonus = h.color === "orange" ? 50 : 30; // bonus lebih besar kalau hunter lagi kabur
+            score += bonus;
+            health = Math.min(100, health + 10);
+            for (let k = 0; k < 16; k++) listPartikel.push(new EatParticle(h.x, h.y, "#ff6600"));
+            for (let k = 0; k < 8; k++) listPartikel.push(new EatParticle(h.x, h.y, "#ffff00"));
+            showFeedNotif(`+${bonus} PEMBURU DIMAKAN! 💀`);
+        }
+    });
+
+    // --- UPDATE PARTIKEL ---
+    listPartikel = listPartikel.filter(p => p.life > 0);
+    listPartikel.forEach(p => p.update());
+
+    // --- KAMERA ---
+    let setengahW = (canvas.width/2) / zoomLevel;
+    let setengahH = (canvas.height/2) / zoomLevel;
+    let minX = segmen[0].x - setengahW, maxX = segmen[0].x + setengahW;
+    let minY = segmen[0].y - setengahH, maxY = segmen[0].y + setengahH;
+
+    ctx.save();
+    ctx.translate(canvas.width/2, canvas.height/2);
+    ctx.scale(zoomLevel, zoomLevel);
+    ctx.translate(-segmen[0].x, -segmen[0].y);
+
+    // --- PADANG RUMPUT ---
+    drawWorld(ctx, minX - 100, maxX + 100, minY - 100, maxY + 100);
+
+    // --- GAMBAR PREY ---
+    listPrey.forEach(p => p.draw(ctx));
+
+    // --- GAMBAR PARTIKEL ---
+    listPartikel.forEach(p => p.draw(ctx));
+
+    // --- GAMBAR HUNTER & PELURU ---
+    listHunter.forEach(h => h.draw(ctx));
+    for (let i = listPeluru.length - 1; i >= 0; i--) {
+        listPeluru[i].draw(ctx);
+        let p = listPeluru[i];
+        if (p.x < minX-200 || p.x > maxX+200 || p.y < minY-200 || p.y > maxY+200) {
+            listPeluru.splice(i, 1);
+        }
+    }
+
+    // --- GERAK KADAL ---
+    if (kadalBergerak) {
+        waktuGlobal += 0.15;
+        let efekLunge = Math.max(0, Math.sin(waktuGlobal*2)) * 1.5;
+        let amp = 2.0;
+        let ax = -arahY * Math.sin(waktuGlobal) * amp;
+        let ay = arahX * Math.sin(waktuGlobal) * amp;
+        let speed = 4.0 + efekLunge;
+        segmen[0].x += arahX*speed + ax;
+        segmen[0].y += arahY*speed + ay;
+    }
+
+    for (let i = 1; i < jumlahSegmen; i++) {
+        let dx = segmen[i-1].x - segmen[i].x;
+        let dy = segmen[i-1].y - segmen[i].y;
+        let jarak = Math.sqrt(dx*dx + dy*dy);
+        if (jarak > panjangSegmen) {
+            let r = panjangSegmen / jarak;
+            segmen[i].x = segmen[i-1].x - dx*r;
+            segmen[i].y = segmen[i-1].y - dy*r;
+        }
+    }
+
+    // --- STEPPING KAKI ---
+    let isStepping = dataKaki.some(k => k.stepProgress < 1.0);
+    if (!isStepping && kadalBergerak) {
+        let butuhLangkah = false;
+        dataKaki.forEach(k => {
+            if (k.group !== stepGroupAktif) return;
+            let px = segmen[k.segmenBody].x, py = segmen[k.segmenBody].y;
+            let dx = segmen[k.segmenBody-1].x - px, dy = segmen[k.segmenBody-1].y - py;
+            let sa = Math.atan2(dy, dx);
+            let ix = px + k.localX*Math.cos(sa) - k.localY*Math.sin(sa);
+            let iy = py + k.localX*Math.sin(sa) + k.localY*Math.cos(sa);
+            if (Math.sqrt((k.xTarget-ix)**2 + (k.yTarget-iy)**2) > 55) butuhLangkah = true;
+        });
+        if (butuhLangkah) {
+            dataKaki.forEach(k => {
+                if (k.group !== stepGroupAktif) return;
+                k.stepProgress = 0.0; k.xAsal = k.xTanah; k.yAsal = k.yTanah;
+                let px = segmen[k.segmenBody].x, py = segmen[k.segmenBody].y;
+                let dx = segmen[k.segmenBody-1].x - px, dy = segmen[k.segmenBody-1].y - py;
+                let sa = Math.atan2(dy, dx);
+                let ix = px + k.localX*Math.cos(sa) - k.localY*Math.sin(sa);
+                let iy = py + k.localX*Math.sin(sa) + k.localY*Math.cos(sa);
+                k.xTarget = ix + Math.cos(sa)*45;
+                k.yTarget = iy + Math.sin(sa)*45;
+            });
+            stepGroupAktif = 1 - stepGroupAktif;
+        }
+    }
+
+    // --- GAMBAR KAKI ---
+    dataKaki.forEach(kaki => {
+        if (kaki.stepProgress < 1.0) {
+            kaki.stepProgress += 0.12;
+            let t = Math.min(kaki.stepProgress, 1.0);
+            let et = t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+            kaki.xTanah = kaki.xAsal + (kaki.xTarget - kaki.xAsal)*et;
+            kaki.yTanah = kaki.yAsal + (kaki.yTarget - kaki.yAsal)*et;
+            kaki.yTanah -= Math.sin(Math.PI*t)*35;
+        }
+        let px = segmen[kaki.segmenBody].x, py = segmen[kaki.segmenBody].y;
+        let lutut = hitungIK(px, py, kaki.xTanah, kaki.yTanah, panjangPaha, panjangBetis, kaki.sign);
+        ctx.strokeStyle = "#ff003c"; ctx.lineWidth = 6; ctx.lineJoin = "round"; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(lutut.x,lutut.y); ctx.lineTo(kaki.xTanah,kaki.yTanah); ctx.stroke();
+        ctx.strokeStyle = "#111"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(lutut.x,lutut.y); ctx.lineTo(kaki.xTanah,kaki.yTanah); ctx.stroke();
+        let isKiri = kaki.localY < 0;
+        let dxb = segmen[kaki.segmenBody-1].x - segmen[kaki.segmenBody].x;
+        let dyb = segmen[kaki.segmenBody-1].y - segmen[kaki.segmenBody].y;
+        let sb = Math.atan2(dyb, dxb);
+        let splayOff = isKiri ? -0.4 : 0.4;
+        let flexOff = kaki.stepProgress < 1.0 ? Math.sin(Math.PI*kaki.stepProgress)*(isKiri?0.8:-0.8) : 0;
+        let st = sb + splayOff + flexOff;
+        ctx.strokeStyle = "#ff003c"; ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        for (let j = -1; j <= 1; j++) {
+            let sj = st + j*0.35, pl = 16+(j===0?5:0);
+            ctx.moveTo(kaki.xTanah, kaki.yTanah);
+            ctx.lineTo(kaki.xTanah + Math.cos(sj)*pl, kaki.yTanah + Math.sin(sj)*pl);
+        }
+        ctx.stroke();
+    });
+
+    // --- GAMBAR BADAN ---
+    for (let i = 0; i < jumlahSegmen; i++) {
+        let uk = i===0?15 : i===1?12 : i<9?(17-i*0.3) : Math.max(15-i*0.8, 2);
+        uk = Math.abs(uk);
+        if (uk < 0.5) uk = 0.5;
+        ctx.fillStyle = "#111"; ctx.strokeStyle = "#ff003c"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(segmen[i].x, segmen[i].y, uk, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+        if (i > 1 && i < jumlahSegmen-2) {
+            let dx = segmen[i-1].x - segmen[i].x, dy = segmen[i-1].y - segmen[i].y;
+            let sa = Math.atan2(dy, dx);
+            let ud = uk * 1.6;
+            ctx.fillStyle = "#ff003c";
+            ctx.beginPath();
+            ctx.moveTo(segmen[i].x+Math.cos(sa+Math.PI/2)*(uk*0.6), segmen[i].y+Math.sin(sa+Math.PI/2)*(uk*0.6));
+            ctx.lineTo(segmen[i].x+Math.cos(sa-Math.PI/2)*(uk*0.6), segmen[i].y+Math.sin(sa-Math.PI/2)*(uk*0.6));
+            ctx.lineTo(segmen[i].x-Math.cos(sa)*ud, segmen[i].y-Math.sin(sa)*ud);
+            ctx.fill();
+        }
+    }
+
+    // --- MATA ---
+    ctx.fillStyle = "#ff0000";
+    ctx.beginPath(); ctx.arc(segmen[0].x+Math.cos(sudutKepala-0.7)*7, segmen[0].y+Math.sin(sudutKepala-0.7)*7, 3.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(segmen[0].x+Math.cos(sudutKepala+0.7)*7, segmen[0].y+Math.sin(sudutKepala+0.7)*7, 3.5, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
+    let mkx = segmen[0].x+Math.cos(sudutKepala-0.7)*7, mky = segmen[0].y+Math.sin(sudutKepala-0.7)*7;
+    ctx.beginPath(); ctx.moveTo(mkx+Math.cos(sudutKepala+Math.PI/2)*2.5, mky+Math.sin(sudutKepala+Math.PI/2)*2.5);
+    ctx.lineTo(mkx-Math.cos(sudutKepala+Math.PI/2)*2.5, mky-Math.sin(sudutKepala+Math.PI/2)*2.5); ctx.stroke();
+    let mkx2 = segmen[0].x+Math.cos(sudutKepala+0.7)*7, mky2 = segmen[0].y+Math.sin(sudutKepala+0.7)*7;
+    ctx.beginPath(); ctx.moveTo(mkx2+Math.cos(sudutKepala+Math.PI/2)*2.5, mky2+Math.sin(sudutKepala+Math.PI/2)*2.5);
+    ctx.lineTo(mkx2-Math.cos(sudutKepala+Math.PI/2)*2.5, mky2-Math.sin(sudutKepala+Math.PI/2)*2.5); ctx.stroke();
+
+    // --- LIDAH ---
+    tongue.draw(ctx, segmen[0].x, segmen[0].y);
+
+    ctx.restore();
+    requestAnimationFrame(updateAnimasi);
+}
+
+updateAnimasi();
+</script>
+</body>
+</html>
